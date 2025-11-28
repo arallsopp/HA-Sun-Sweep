@@ -116,8 +116,14 @@ for ent in row5_tw:
     })
 
 # Atrium TW
-sunset_zone = pos > 85 # sunset zone will drop the white brightness
-tw_factor = 0.2 if sunset_zone else 0.9 #reduce brightness for sunset.
+
+# Sunset zone will drop the white brightness to avoid washing out the sunset
+if pos <= 85:
+    tw_factor = 1.0 # normal brightness for day
+elif pos >= 100:
+    tw_factor = 0 # invalid position
+else:
+    tw_factor = (100 - pos) / 15 # linear reduction based on pos
 
 for ent in row6_atrium_tw:
     hass.services.call("light","turn_on",{
