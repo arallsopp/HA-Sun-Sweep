@@ -30,7 +30,7 @@ def clamp(v,a,b): return max(a,min(b,v))
 def lerp(a,b,t): return a+(b-a)*t
 def bell(x,c,w):
     dx=(x-c)/w
-    return max(0,1-dx*dx)
+    return max(0, 1 - (dx*dx / severity)) # broader and flatter
 
 # corrected tw_kelvin for soft warm mornings, cool midday, warm evenings.
 def tw_kelvin(pos):
@@ -120,15 +120,13 @@ for ent in row5_tw:
 # Sunset zone will drop the white brightness to avoid washing out the sunset
 if pos <= 85:
     tw_factor = 1.0 # normal brightness for day
-elif pos >= 100:
-    tw_factor = 0 # invalid position
 else:
-    tw_factor = (100 - pos) / 15 # linear reduction based on pos
+    tw_factor = max(0.0, 1- ((pos - 85) / 15.0)) # linear reduction based on pos
 
 for ent in row6_atrium_tw:
     hass.services.call("light","turn_on",{
         "entity_id": ent,
-        "brightness_pct": int(row_pct["row6_atrium"]*0.9),
+        "brightness_pct": int(row_pct["row6_atrium"]* tw_factor), # apply the reduction
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_slow
     })
