@@ -93,7 +93,7 @@ else:
 
 # --- Calculate the row bell intensities ---------------------------------
 for k in row_config:
-    row_config[k]["width"] *= severity
+    row_config[k]["width"] = row_config[k]["width"] * severity
 
 row_pct = {
     r: clamp(int(bell(pos,cfg["center"],cfg["width"])*cfg["max"]),0,100)
