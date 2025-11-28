@@ -71,12 +71,12 @@ def atrium_default_rgb(pos):
 
 # --- Row envelopes -------------------------------------------------------
 row_config = {
-    "row1_tw": {"center":30, "width":10, "max":85},
-    "row2_rgb":{"center":40, "width":10, "max":80},
-    "row3_rgb":{"center":50, "width":10, "max":80},
-    "row4_tw":{"center":60, "width":10, "max":85},
-    "row5_tw":{"center":70, "width":12, "max":100},
-    "row6_atrium":{"center":85, "width":14, "max":100},
+    "row1_tw": {"center":30, "width":22, "max":85},
+    "row2_rgb":{"center":40, "width":22, "max":80},
+    "row3_rgb":{"center":50, "width":22, "max":80},
+    "row4_tw":{"center":60, "width":22, "max":85},
+    "row5_tw":{"center":70, "width":24, "max":100},
+    "row6_atrium":{"center":85, "width":28, "max":100},
 }
 
 for k in row_config:
@@ -167,3 +167,5 @@ debug = (
     f"kelvin={tw_kelvin(pos)}"
 )
 hass.states.set("input_text.sun_debugger", debug)
+# dump the sweep values to the log so that I can read them en masse
+hass.log.info("SUN_SWEEP: " + debug)
