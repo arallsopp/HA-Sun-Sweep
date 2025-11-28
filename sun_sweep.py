@@ -14,81 +14,91 @@ row6_atrium_tw = ["light.table_uplight_white", "light.table_downlight_white"]
 row6_atrium_rgb = ["light.table_uplight_colour", "light.table_downlight_colour"]
 
 
-# --- Row Config ----------------------------------------------------------
-# trying wider versions
+# --- Row Config (slightly widened) ---------------------------------------
 row_config = {
     "row1_tw": {"center":30, "width":20, "max":85},
-    "row2_rgb":{"center":40, "width":22, "max":85},
-    "row3_rgb":{"center":50, "width":24, "max":90},
-    "row4_tw":{"center":60, "width":28, "max":85},
-    "row5_tw":{"center":70, "width":30, "max":95},
-    "row6_atrium":{"center":85, "width":32, "max":100},
+    "row2_rgb":{"center":40, "width":26, "max":90},
+    "row3_rgb":{"center":50, "width":28, "max":95},
+    "row4_tw":{"center":60, "width":30, "max":90},
+    "row5_tw":{"center":70, "width":32, "max":100},
+    "row6_atrium":{"center":85, "width":34, "max":100},
 }
 
 # --- Helpers -------------------------------------------------------------
 def clamp(v,a,b): return max(a,min(b,v))
 def lerp(a,b,t): return a+(b-a)*t
+
+# Softer bell for wider sweep
 def bell(x,c,w):
     dx=(x-c)/w
-    return max(0, 1 - (dx*dx / severity)) # broader and flatter
+    return max(0, 1 - (dx*dx / (severity*0.85)))   # softer → wider
 
-# corrected tw_kelvin for soft warm mornings, cool midday, warm evenings.
+# Kelvin curved for sunrise/midday/sunset
 def tw_kelvin(pos):
-    # Sunrise → Midday → Sunset curve
     if pos < 50:
-        # 2200 → 5500
         t = pos/50.0
-        kelvin = int(lerp(2200, 5500, t))
+        k = lerp(2200, 5600, t)
     else:
-        # 5500 → 2200
         t = (pos-50)/50.0
-        kelvin = int(lerp(5500, 2200, t))
+        k = lerp(5600, 2200, t)
 
     # Extra orange in last 15%
     if pos > 85:
         t2 = (pos-85)/15.0
-        kelvin -= int(500 * t2)
+        k -= 650 * t2   # stronger
 
-    return clamp(kelvin, 1800, 5500)
+    return int(clamp(k, 1800, 5600))
 
-def safe_rgb(c, fallback=(255,200,150)):
-    # Ensures rgb_color never receives None
+def safe_rgb(c, fallback=(255,180,120)):
     return c if c is not None else fallback
 
-# Atrium cinematic sunset
+# --- CINEMATIC SUNSET RGB CURVES (NEW, MUCH MORE VIBRANT) -------------
+
 def atrium_uplight_sunset(pos):
     if pos <= 85: return None
-    t=(pos-85)/15.0
-    if t <= 0.5:
-        t2=t/0.5
-        return (255, lerp(140,80,t2), lerp(40,50,t2))
-    else:
-        t2=(t-0.5)/0.5
-        return (lerp(255,120,t2), lerp(80,40,t2), lerp(50,150,t2))
+    t = (pos-85)/15.0
+
+    # Start deep orange → molten amber → pink → red → purple
+    return (
+        int(lerp(255, 140, t)),     # red: fades down slightly
+        int(lerp(120, 20, t)),      # green: collapses, gives warmth → magenta
+        int(lerp(30, 140, t))       # blue: rises → purple
+    )
 
 def atrium_downlight_sunset(pos):
     if pos <= 85: return None
-    t=(pos-85)/15.0
-    if t <= 0.5:
-        t2=t/0.5
-        return (255, lerp(200,80,t2), lerp(100,40,t2))
-    else:
-        t2=(t-0.5)/0.5
-        return (lerp(255,200,t2), lerp(80,20,t2), lerp(40,150,t2))
+    t = (pos-85)/15.0
 
-# Fallback for atrium RGB when pos ≤ 85
+    # A brighter version with golden core early stage
+    return (
+        int(lerp(255, 180, t)),     # red
+        int(lerp(180, 30, t)),      # green
+        int(lerp(40, 160, t))       # blue
+    )
+
+# Daylight RGB for non-atrium rows
 def atrium_default_rgb(pos):
     k = tw_kelvin(pos)
-    if k >= 5000: return (180,200,255)
-    elif k >= 3500: return (255,235,200)
-    else: return (255,200,150)
+    if k > 5000:
+        return (180, 205, 255)
+    if k > 3500:
+        return (255, 235, 205)
+    return (255, 200, 150)
 
-# --- Calculate Row envelopes -------------------------------------------------------
+# --- Sunset white fade in atrium (FIXED TO 1 > 0) ------------------------
+if pos <= 85:
+    tw_factor = 1.0
+else:
+    tw_factor = max(0.0, 1 - ((pos - 85) / 15.0))  # 85→100 now fades perfectly
+
+# --- Calculate the row bell intensities ---------------------------------
 for k in row_config:
-    row_config[k]["width"] = row_config[k]["width"] * severity
+    row_config[k]["width"] *= severity
 
-row_pct = { r: clamp(int(bell(pos,cfg["center"],cfg["width"])*cfg["max"]),0,100)
-            for r,cfg in row_config.items() }
+row_pct = {
+    r: clamp(int(bell(pos,cfg["center"],cfg["width"])*cfg["max"]),0,100)
+    for r,cfg in row_config.items()
+}
 
 # --- Apply TW rows -------------------------------------------------------
 for ent in row1_tw:
@@ -116,17 +126,10 @@ for ent in row5_tw:
     })
 
 # Atrium TW
-
-# Sunset zone will drop the white brightness to avoid washing out the sunset
-if pos <= 85:
-    tw_factor = 1.0 # normal brightness for day
-else:
-    tw_factor = max(0.0, 1- ((pos - 85) / 15.0)) # linear reduction based on pos
-
 for ent in row6_atrium_tw:
     hass.services.call("light","turn_on",{
         "entity_id": ent,
-        "brightness_pct": int(row_pct["row6_atrium"]* tw_factor), # apply the reduction
+        "brightness_pct": int(row_pct["row6_atrium"] * tw_factor), # apply the reduction
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_slow
     })
@@ -169,15 +172,10 @@ hass.services.call("light","turn_on",{
 
 # --- Debug ---------------------------------------------------------------
 debug = (
-    f"pos={pos:.1f}, sev={severity:.2f} | "
-    f"r1={row_pct['row1_tw']}%, "
-    f"r2={row_pct['row2_rgb']}%, "
-    f"r3={row_pct['row3_rgb']}%, "
-    f"r4={row_pct['row4_tw']}%, "
-    f"r5={row_pct['row5_tw']}%, "
-    f"r6={row_pct['row6_atrium']}% | "
-    f"kelvin={tw_kelvin(pos)}"
+    f"pos={pos:.1f} sev={severity:.2f} | "
+    f"r1={row_pct['row1_tw']} r2={row_pct['row2_rgb']} "
+    f"r3={row_pct['row3_rgb']} r4={row_pct['row4_tw']} "
+    f"r5={row_pct['row5_tw']} r6={row_pct['row6_atrium']} | "
+    f"kelvin={tw_kelvin(pos)} tw_factor={tw_factor:.2f}"
 )
 hass.states.set("input_text.sun_debugger", debug)
-
-# can't access the log. Durrr!
