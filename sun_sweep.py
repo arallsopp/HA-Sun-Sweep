@@ -9,9 +9,21 @@ row1_tw = ["light.slope_spot", "light.music_corner"]
 row2_rgb = ["light.towards_slope", "light.foot_stool"]
 row3_rgb = ["light.burner", "light.axel"]
 row4_tw = ["light.reading_light", "light.music_stand"]
-row5_tw = ["light.kitchen"]
+row5_tw = ["light.breakfast_bar"]
 row6_atrium_tw = ["light.table_uplight_white", "light.table_downlight_white"]
 row6_atrium_rgb = ["light.table_uplight_colour", "light.table_downlight_colour"]
+
+
+# --- Row Config ----------------------------------------------------------
+# trying wider versions
+row_config = {
+    "row1_tw": {"center":30, "width":20, "max":85},
+    "row2_rgb":{"center":40, "width":22, "max":85},
+    "row3_rgb":{"center":50, "width":24, "max":90},
+    "row4_tw":{"center":60, "width":28, "max":85},
+    "row5_tw":{"center":70, "width":30, "max":95},
+    "row6_atrium":{"center":85, "width":32, "max":100},
+}
 
 # --- Helpers -------------------------------------------------------------
 def clamp(v,a,b): return max(a,min(b,v))
@@ -20,22 +32,24 @@ def bell(x,c,w):
     dx=(x-c)/w
     return max(0,1-dx*dx)
 
+# corrected tw_kelvin for soft warm mornings, cool midday, warm evenings.
 def tw_kelvin(pos):
-    # Warm → Neutral → Warm curve
-    if pos < 60:
-        # 2200 → 4200
-        t = pos/60.0
-        kelvin = int(lerp(2200,4200,t))
-    elif pos < 80:
-        # 4200 → 3500
-        t = (pos-60)/20.0
-        kelvin = int(lerp(4200,3500,t))
+    # Sunrise → Midday → Sunset curve
+    if pos < 50:
+        # 2200 → 5500
+        t = pos/50.0
+        kelvin = int(lerp(2200, 5500, t))
     else:
-        # 3500 → 2200 final orange
-        t = (pos-80)/20.0
-        kelvin = int(lerp(3500,2200,t))
+        # 5500 → 2200
+        t = (pos-50)/50.0
+        kelvin = int(lerp(5500, 2200, t))
 
-    return clamp(kelvin,1800,5500)
+    # Extra orange in last 15%
+    if pos > 85:
+        t2 = (pos-85)/15.0
+        kelvin -= int(500 * t2)
+
+    return clamp(kelvin, 1800, 5500)
 
 def safe_rgb(c, fallback=(255,200,150)):
     # Ensures rgb_color never receives None
@@ -69,16 +83,7 @@ def atrium_default_rgb(pos):
     elif k >= 3500: return (255,235,200)
     else: return (255,200,150)
 
-# --- Row envelopes -------------------------------------------------------
-row_config = {
-    "row1_tw": {"center":30, "width":22, "max":85},
-    "row2_rgb":{"center":40, "width":22, "max":80},
-    "row3_rgb":{"center":50, "width":22, "max":80},
-    "row4_tw":{"center":60, "width":22, "max":85},
-    "row5_tw":{"center":70, "width":24, "max":100},
-    "row6_atrium":{"center":85, "width":28, "max":100},
-}
-
+# --- Calculate Row envelopes -------------------------------------------------------
 for k in row_config:
     row_config[k]["width"] = row_config[k]["width"] * severity
 
@@ -111,6 +116,9 @@ for ent in row5_tw:
     })
 
 # Atrium TW
+sunset_zone = pos > 85 # sunset zone will drop the white brightness
+tw_factor = 0.2 if sunset_zone else 0.9 #reduce brightness for sunset.
+
 for ent in row6_atrium_tw:
     hass.services.call("light","turn_on",{
         "entity_id": ent,
@@ -167,5 +175,5 @@ debug = (
     f"kelvin={tw_kelvin(pos)}"
 )
 hass.states.set("input_text.sun_debugger", debug)
-# dump the sweep values to the log so that I can read them en masse
-hass.log.info("SUN_SWEEP: " + debug)
+
+# can't access the log. Durrr!
