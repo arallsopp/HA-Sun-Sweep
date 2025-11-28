@@ -1,4 +1,8 @@
-# sun_sweep.py
+# sun_sweep.py  -- Revised version (rows + cinematic sunset + severity floors)
+# Expects:
+#   data.position (0..100)
+#   data.severity (0.5..2.0)
+
 pos = float(data.get("position",0.0))
 severity = float(data.get("severity",1.0))
 transition_fast = 6
@@ -13,131 +17,141 @@ row5_tw = ["light.breakfast_bar"]
 row6_atrium_tw = ["light.table_uplight_white", "light.table_downlight_white"]
 row6_atrium_rgb = ["light.table_uplight_colour", "light.table_downlight_colour"]
 
-
-# --- Row Config (slightly widened) ---------------------------------------
+# --- Row Config ----------------------------------------------------------
 row_config = {
     "row1_tw": {"center":30, "width":20, "max":85},
-    "row2_rgb":{"center":40, "width":26, "max":90},
-    "row3_rgb":{"center":50, "width":28, "max":95},
-    "row4_tw":{"center":60, "width":30, "max":90},
-    "row5_tw":{"center":70, "width":32, "max":100},
-    "row6_atrium":{"center":85, "width":34, "max":100},
+    "row2_rgb":{"center":40, "width":22, "max":85},
+    "row3_rgb":{"center":50, "width":24, "max":90},
+    "row4_tw":{"center":60, "width":28, "max":85},
+    "row5_tw":{"center":70, "width":30, "max":95},
+    "row6_atrium":{"center":85, "width":32, "max":100},
 }
 
 # --- Helpers -------------------------------------------------------------
 def clamp(v,a,b): return max(a,min(b,v))
 def lerp(a,b,t): return a+(b-a)*t
 
-# Softer bell for wider sweep
-def bell(x,c,w):
-    dx=(x-c)/w
-    return max(0, 1 - (dx*dx / (severity*0.85)))   # softer → wider
+def bell(x,c,w,severity):
+    # Parabolic bell; severity reduces curvature (higher -> wider/shallower)
+    dx = (x - c) / max(0.0001, w)
+    return max(0.0, 1.0 - (dx*dx / max(0.0001, severity)))
 
-# Kelvin curved for sunrise/midday/sunset
 def tw_kelvin(pos):
+    # Sunrise -> Midday -> Sunset mapping with extra orange near end
     if pos < 50:
-        t = pos/50.0
-        k = lerp(2200, 5600, t)
+        t = pos / 50.0
+        kelvin = int(lerp(2200, 5500, t))
     else:
-        t = (pos-50)/50.0
-        k = lerp(5600, 2200, t)
-
-    # Extra orange in last 15%
+        t = (pos - 50) / 50.0
+        kelvin = int(lerp(5500, 2200, t))
     if pos > 85:
-        t2 = (pos-85)/15.0
-        k -= 650 * t2   # stronger
-
-    return int(clamp(k, 1800, 5600))
-
-def safe_rgb(c, fallback=(255,180,120)):
-    return c if c is not None else fallback
-
-# --- CINEMATIC SUNSET RGB CURVES (NEW, MUCH MORE VIBRANT) -------------
+        t2 = (pos - 85) / 15.0
+        kelvin -= int(500 * t2)
+    return clamp(kelvin, 1800, 5500)
 
 def atrium_uplight_sunset(pos):
     if pos <= 85: return None
-    t = (pos-85)/15.0
-
-    # Start deep orange → molten amber → pink → red → purple
-    return (
-        int(lerp(255, 140, t)),     # red: fades down slightly
-        int(lerp(120, 20, t)),      # green: collapses, gives warmth → magenta
-        int(lerp(30, 140, t))       # blue: rises → purple
-    )
+    t = (pos - 85) / 15.0
+    if t <= 0.5:
+        t2 = t / 0.5
+        r = int(lerp(255,255,t2))
+        g = int(lerp(140,80,t2))
+        b = int(lerp(40,50,t2))
+    else:
+        t2 = (t - 0.5) / 0.5
+        r = int(lerp(255,120,t2))
+        g = int(lerp(80,40,t2))
+        b = int(lerp(50,150,t2))
+    return (clamp(r,0,255), clamp(g,0,255), clamp(b,0,255))
 
 def atrium_downlight_sunset(pos):
     if pos <= 85: return None
-    t = (pos-85)/15.0
+    t = (pos - 85) / 15.0
+    if t <= 0.5:
+        t2 = t / 0.5
+        r = int(lerp(255,255,t2))
+        g = int(lerp(200,80,t2))
+        b = int(lerp(100,40,t2))
+    else:
+        t2 = (t - 0.5) / 0.5
+        r = int(lerp(255,200,t2))
+        g = int(lerp(80,20,t2))
+        b = int(lerp(40,150,t2))
+    return (clamp(r,0,255), clamp(g,0,255), clamp(b,0,255))
 
-    # A brighter version with golden core early stage
-    return (
-        int(lerp(255, 180, t)),     # red
-        int(lerp(180, 30, t)),      # green
-        int(lerp(40, 160, t))       # blue
-    )
-
-# Daylight RGB for non-atrium rows
 def atrium_default_rgb(pos):
     k = tw_kelvin(pos)
-    if k > 5000:
-        return (180, 205, 255)
-    if k > 3500:
-        return (255, 235, 205)
-    return (255, 200, 150)
+    if k >= 5000:
+        return (180,200,255)
+    elif k >= 3500:
+        return (255,235,200)
+    else:
+        return (255,200,150)
 
-# --- Sunset white fade in atrium (FIXED TO 1 > 0) ------------------------
-if pos <= 85:
-    tw_factor = 1.0
-else:
-    tw_factor = max(0.0, 1 - ((pos - 85) / 15.0))  # 85→100 now fades perfectly
+def safe_rgb(c, fallback=(255,200,150)):
+    return c if c is not None else fallback
 
-# --- Calculate the row bell intensities ---------------------------------
-for k in row_config:
-    row_config[k]["width"] = row_config[k]["width"] * severity
+# --- Compute row envelopes -----------------------------------------------
+# Expand widths by severity
+for k in list(row_config.keys()):
+    cfg = row_config[k]
+    row_config[k] = {"center": cfg["center"], "width": cfg["width"] * severity, "max": cfg["max"]}
 
-row_pct = {
-    r: clamp(int(bell(pos,cfg["center"],cfg["width"])*cfg["max"]),0,100)
-    for r,cfg in row_config.items()
-}
+# severity floor: severity 1 -> floor 60 (so bulbs remain visibly warm), severity 2 -> floor 5 (practically off)
+floor = int(lerp(60, 5, clamp((severity - 1.0) / (2.0 - 1.0), 0.0, 1.0)))
 
-# --- Apply TW rows -------------------------------------------------------
+row_pct = {}
+for r, cfg in row_config.items():
+    computed = int(bell(pos, cfg["center"], cfg["width"], severity) * cfg["max"])
+    row_pct[r] = clamp(max(computed, floor), 0, 100)
+
+# --- Apply lights -------------------------------------------------------
+# Row 1 & 4 TW
 for ent in row1_tw:
-    hass.services.call("light","turn_on",{
+    pct = row_pct["row1_tw"]
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
-        "brightness_pct": row_pct["row1_tw"],
+        "brightness_pct": pct,
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_fast
     })
 
 for ent in row4_tw:
-    hass.services.call("light","turn_on",{
+    pct = row_pct["row4_tw"]
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
-        "brightness_pct": row_pct["row4_tw"],
+        "brightness_pct": pct,
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_fast
     })
 
+# Row 5 TW (kitchen)
 for ent in row5_tw:
-    hass.services.call("light","turn_on",{
+    pct = row_pct["row5_tw"]
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
-        "brightness_pct": row_pct["row5_tw"],
+        "brightness_pct": pct,
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_fast
     })
 
-# Atrium TW
+# Atrium TW -- scale whites down during final sunset zone
+if pos <= 85:
+    tw_factor = 1.0
+else:
+    tw_factor = max(0.0, 1.0 - ((pos - 85) / 15.0))
+
 for ent in row6_atrium_tw:
-    hass.services.call("light","turn_on",{
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
-        "brightness_pct": int(row_pct["row6_atrium"] * tw_factor), # apply the reduction
+        "brightness_pct": int(row_pct["row6_atrium"] * tw_factor),
         "color_temp_kelvin": tw_kelvin(pos),
         "transition": transition_slow
     })
 
-# --- Apply RGB rows ------------------------------------------------------
-# Row 2 + 3
+# Row 2 & 3 RGB (ambient tint based on tunable white)
 for ent in row2_rgb:
-    hass.services.call("light","turn_on",{
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
         "brightness_pct": row_pct["row2_rgb"],
         "rgb_color": atrium_default_rgb(pos),
@@ -145,7 +159,7 @@ for ent in row2_rgb:
     })
 
 for ent in row3_rgb:
-    hass.services.call("light","turn_on",{
+    hass.services.call("light", "turn_on", {
         "entity_id": ent,
         "brightness_pct": row_pct["row3_rgb"],
         "rgb_color": atrium_default_rgb(pos),
@@ -156,26 +170,25 @@ for ent in row3_rgb:
 up_rgb = atrium_uplight_sunset(pos) or atrium_default_rgb(pos)
 down_rgb = atrium_downlight_sunset(pos) or atrium_default_rgb(pos)
 
-hass.services.call("light","turn_on",{
+hass.services.call("light", "turn_on", {
     "entity_id": row6_atrium_rgb[0],
     "rgb_color": safe_rgb(up_rgb),
     "brightness_pct": row_pct["row6_atrium"],
     "transition": transition_slow
 })
 
-hass.services.call("light","turn_on",{
+hass.services.call("light", "turn_on", {
     "entity_id": row6_atrium_rgb[1],
     "rgb_color": safe_rgb(down_rgb),
-    "brightness_pct": int(clamp(row_pct["row6_atrium"]*0.9,0,100)),
+    "brightness_pct": int(clamp(row_pct["row6_atrium"] * 0.9, 0, 100)),
     "transition": transition_slow
 })
 
 # --- Debug ---------------------------------------------------------------
 debug = (
-    f"pos={pos:.1f} sev={severity:.2f} | "
-    f"r1={row_pct['row1_tw']} r2={row_pct['row2_rgb']} "
-    f"r3={row_pct['row3_rgb']} r4={row_pct['row4_tw']} "
-    f"r5={row_pct['row5_tw']} r6={row_pct['row6_atrium']} | "
-    f"kelvin={tw_kelvin(pos)} tw_factor={tw_factor:.2f}"
+    f"pos={pos:.1f}, sev={severity:.2f} | "
+    f"r1={row_pct['row1_tw']}%, r2={row_pct['row2_rgb']}%, r3={row_pct['row3_rgb']}%, "
+    f"r4={row_pct['row4_tw']}%, r5={row_pct['row5_tw']}%, r6={row_pct['row6_atrium']}% | "
+    f"kelvin={tw_kelvin(pos):d}"
 )
 hass.states.set("input_text.sun_debugger", debug)
