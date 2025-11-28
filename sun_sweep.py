@@ -103,7 +103,55 @@ def atrium_rgb(p,uplight=True):
     else:
         t=(p-80)/20
         return (int(lerp(255,200,t)), int(lerp(140,20,t)), int(lerp(40,255,t)))
+        
+# --- Atrium Sunset -------------------------------------------------------
+def atrium_uplight_sunset(pos):
+    """
+    Ceiling uplight: amber → orange → deep purple
+    Triggered for pos > 85
+    """
+    if pos <= 85:
+        # not yet sunset, return None to fallback to normal
+        return None
+    # Normalize to 0..1 within the final 15%
+    t = (pos - 85) / 15.0  # 0 at start of sunset, 1 at slider max
+    # Interpolate RGB
+    # Amber -> Orange -> Deep Purple
+    if t <= 0.5:
+        # Amber -> Orange
+        t2 = t / 0.5
+        r = int(lerp(255, 255, t2))
+        g = int(lerp(140, 80, t2))
+        b = int(lerp(40, 50, t2))
+    else:
+        # Orange -> Deep Purple
+        t2 = (t - 0.5) / 0.5
+        r = int(lerp(255, 120, t2))
+        g = int(lerp(80, 40, t2))
+        b = int(lerp(50, 150, t2))
+    return (clamp(r,0,255), clamp(g,0,255), clamp(b,0,255))
 
+def atrium_downlight_sunset(pos):
+    """
+    Table downlight: golden → deep orange → magenta flare
+    Triggered for pos > 85
+    """
+    if pos <= 85:
+        return None
+    t = (pos - 85) / 15.0
+    if t <= 0.5:
+        # Golden -> Deep Orange
+        t2 = t / 0.5
+        r = int(lerp(255, 255, t2))
+        g = int(lerp(200, 80, t2))
+        b = int(lerp(100, 40, t2))
+    else:
+        # Deep Orange -> Magenta flare
+        t2 = (t - 0.5) / 0.5
+        r = int(lerp(255, 200, t2))
+        g = int(lerp(80, 20, t2))
+        b = int(lerp(40, 150, t2))
+    return (clamp(r,0,255), clamp(g,0,255), clamp(b,0,255))
 # --- Send commands -------------------------------------------------------
 
 transition_fast = 6
@@ -153,15 +201,24 @@ for ent in atrium_tw_entities:
     })
 
 # Atrium RGB
+if pos > 85:
+    # Use cinematic sunset for final 15%
+    uplight_color = atrium_uplight_sunset(pos)
+    downlight_color = atrium_downlight_sunset(pos)
+else:
+    uplight_color = atrium_rgb(pos, uplight=True)
+    downlight_color = atrium_rgb(pos, uplight=False)
+
+# Apply lights
 hass.services.call("light","turn_on",{
     "entity_id": atrium_rgb_entities[0],
-    "rgb_color": atrium_rgb(pos, uplight=True),
+    "rgb_color": uplight_color,
     "brightness_pct": atrium_pct,
     "transition": transition_slow
 })
 hass.services.call("light","turn_on",{
     "entity_id": atrium_rgb_entities[1],
-    "rgb_color": atrium_rgb(pos, uplight=False),
+    "rgb_color": downlight_color,
     "brightness_pct": int(clamp(atrium_pct*0.9,0,100)),
     "transition": transition_slow
 })
